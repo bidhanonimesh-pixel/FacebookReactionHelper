@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - main
-
   workflow_dispatch:
 
 permissions:
@@ -16,54 +15,38 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-
-      # 1. Download repository
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      # 2. Java 17
       - name: Setup Java 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
 
-      # 3. Android SDK
-      # IMPORTANT: v4 is used because the old "tools"
-      # package is no longer available.
       - name: Setup Android SDK
         uses: android-actions/setup-android@v4
         with:
           packages: 'platform-tools'
 
-      # 4. Install required Android SDK packages
       - name: Install Android SDK Components
         run: |
           yes | sdkmanager --licenses || true
-
           sdkmanager \
             "platform-tools" \
             "platforms;android-35" \
             "build-tools;35.0.0"
 
-      # 5. Find uploaded ZIP
       - name: Find Android ZIP
         run: |
           echo "Searching for Android ZIP..."
+          find . -maxdepth 3 -type f -iname "*.zip" -print
 
-          find . -maxdepth 3 \
-            -type f \
-            -iname "*.zip" \
-            -print
-
-      # 6. Extract ZIP
       - name: Extract Android Project
         run: |
           set -e
 
-          ZIP_FILE=$(find . -maxdepth 3 \
-            -type f \
-            -iname "*.zip" | head -n 1)
+          ZIP_FILE=$(find . -maxdepth 3 -type f -iname "*.zip" | head -n 1)
 
           if [ -z "$ZIP_FILE" ]; then
             echo "ERROR: Android ZIP file not found."
@@ -79,25 +62,19 @@ jobs:
           unzip -q "$ZIP_FILE" -d android_project
 
           echo "===== EXTRACTED FILES ====="
-          find android_project -maxdepth 5 -type f | sort
+          find android_project -maxdepth 6 -type f | sort
           echo "==========================="
 
-      # 7. Find actual Gradle project
       - name: Locate Android Project
         run: |
           set -e
 
-          SETTINGS=$(find android_project \
-            -type f \
-            \( \
-              -name "settings.gradle" \
-              -o \
-              -name "settings.gradle.kts" \
-            \) | head -n 1)
+          SETTINGS=$(find android_project -type f \
+            \( -name "settings.gradle" -o -name "settings.gradle.kts" \) \
+            | head -n 1)
 
           if [ -z "$SETTINGS" ]; then
             echo "ERROR: settings.gradle not found."
-            echo "ZIP does not contain a valid Gradle project."
             exit 1
           fi
 
@@ -108,28 +85,19 @@ jobs:
 
           echo "$PROJECT_DIR" > project_path.txt
 
-      # 8. Verify project
       - name: Verify Android Project
         run: |
           PROJECT_DIR=$(cat project_path.txt)
 
           echo "===== PROJECT STRUCTURE ====="
-          find "$PROJECT_DIR" -maxdepth 5 -type f | sort
+          find "$PROJECT_DIR" -maxdepth 6 -type f | sort
           echo "============================="
 
-      # 9. Prepare Gradle
-      - name: Prepare Gradle Wrapper
-        run: |
-          PROJECT_DIR=$(cat project_path.txt)
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
 
-          if [ ! -f "$PROJECT_DIR/gradlew" ]; then
-            echo "ERROR: gradlew not found."
-            exit 1
-          fi
-
-          chmod +x "$PROJECT_DIR/gradlew"
-
-      # 10. Build APK
       - name: Build Debug APK
         run: |
           set -e
@@ -138,26 +106,29 @@ jobs:
 
           cd "$PROJECT_DIR"
 
-          ./gradlew clean assembleDebug \
+          echo "===== GRADLE VERSION ====="
+          gradle --version
+
+          echo "===== BUILDING APK ====="
+
+          gradle clean assembleDebug \
             --stacktrace \
             --no-daemon
 
-      # 11. Find APK
       - name: Find Generated APK
         if: success()
         run: |
           PROJECT_DIR=$(cat project_path.txt)
 
-          echo "===== APK ====="
+          echo "===== GENERATED APK ====="
 
           find "$PROJECT_DIR" \
             -type f \
             -name "*.apk" \
             -print
 
-          echo "==============="
+          echo "========================="
 
-      # 12. Upload APK
       - name: Upload APK
         if: success()
         uses: actions/upload-artifact@v4
@@ -167,7 +138,6 @@ jobs:
             android_project/**/build/outputs/apk/debug/*.apk
           if-no-files-found: error
 
-      # 13. Build failure information
       - name: Collect Build Error Information
         if: failure()
         run: |
@@ -177,14 +147,15 @@ jobs:
             > build-error-report/README.txt
 
           echo "" >> build-error-report/README.txt
-          echo "Project files:" >> build-error-report/README.txt
+
+          echo "Project files:" \
+            >> build-error-report/README.txt
 
           find android_project \
-            -maxdepth 6 \
+            -maxdepth 8 \
             -type f \
             >> build-error-report/README.txt || true
 
-      # 14. Upload error report
       - name: Upload Build Error Report
         if: failure()
         uses: actions/upload-artifact@v4
