@@ -1,0 +1,96 @@
+name: Android Build
+
+on:
+  push:
+    branches:
+      - main
+      - master
+
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build Android APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Show Project Files
+        run: |
+          echo "===== PROJECT FILES ====="
+          find . -maxdepth 3 -type f | sort
+          echo "========================="
+
+      - name: Accept Android SDK Licenses
+        run: |
+          yes | sdkmanager --licenses || true
+
+      - name: Install Android SDK Components
+        run: |
+          sdkmanager "platform-tools"
+          sdkmanager "platforms;android-35"
+          sdkmanager "build-tools;35.0.0"
+
+      - name: Make Gradle Executable
+        run: |
+          if [ -f "./gradlew" ]; then
+            chmod +x ./gradlew
+          fi
+
+      - name: Build Debug APK
+        run: |
+          if [ -f "./gradlew" ]; then
+            ./gradlew assembleDebug --stacktrace --info
+          else
+            gradle assembleDebug --stacktrace --info
+          fi
+
+      - name: Find APK
+        if: success()
+        run: |
+          echo "===== APK FILES ====="
+          find . -type f -name "*.apk" -print
+          echo "===================="
+
+      - name: Upload APK
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: FacebookReactionHelper-debug
+          path: |
+            **/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+
+      - name: Save Build Logs
+        if: failure()
+        run: |
+          mkdir -p build-error-log
+          echo "Build failed." > build-error-log/build-error.txt
+          echo "Check the GitHub Actions log for the complete error."
+
+      - name: Upload Error Information
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Android-Build-Error
+          path: build-error-log/
+          if-no-files-found: warn
